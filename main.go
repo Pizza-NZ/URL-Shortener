@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,11 +16,123 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	logger                  = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	requestIDKey contextKey = "requestID"
+	wg           sync.WaitGroup
+	DBURLs       = NewURLMap()
+)
+
 type contextKey string
 
-var (
-	requestIDKey contextKey = "requestID"
-)
+type URLMap struct {
+	lock sync.RWMutex
+	URLs map[string]string
+}
+
+func NewURLMap() *URLMap {
+	return &URLMap{
+		URLs: make(map[string]string),
+	}
+}
+
+type NotFoundError struct {
+	key string
+}
+
+func (e *NotFoundError) Error() string {
+	return fmt.Sprintf("The requested key (%s) does not exist in the map.", e.key)
+}
+
+func NewNotFoundError(key string) *NotFoundError {
+	return &NotFoundError{key: key}
+}
+
+type Details struct {
+	Field string `json:"field"`
+	Issue string `json:"issue"`
+}
+
+type BadRequestError struct {
+	Details []Details `json:"details"`
+}
+
+func (e *BadRequestError) Error() string {
+	if len(e.Details) == 0 {
+		return "Bad request with no details provided."
+	}
+	var issues []string
+	for _, detail := range e.Details {
+		issues = append(issues, fmt.Sprintf("%s: %s", detail.Field, detail.Issue))
+	}
+	return fmt.Sprintf("Bad request with issues: %s", issues)
+}
+
+func NewBadRequestError(details []Details) *BadRequestError {
+	return &BadRequestError{
+		Details: details,
+	}
+}
+
+type AppError struct {
+	Underlying error `json:"-"`
+
+	HTTPStatus int `json:"-"`
+
+	Message string `json:"message"`
+
+	InternalMessage string `json:"-"`
+}
+
+func (e *AppError) Error() string {
+	if e.Underlying != nil {
+		return fmt.Sprintf("message: %s, internal_message: %s, underlying_error: %v", e.Message, e.InternalMessage, e.Underlying)
+	}
+	return fmt.Sprintf("message: %s, internal_message: %s", e.Message, e.InternalMessage)
+}
+
+func (e *AppError) Unwrap() error {
+	return e.Underlying
+}
+
+func NewAppError(message, internalMessage string, httpStatus int, underlying error) *AppError {
+	return &AppError{
+		Message:         message,
+		InternalMessage: internalMessage,
+		HTTPStatus:      httpStatus,
+		Underlying:      underlying,
+	}
+}
+
+func (m *URLMap) Get(key string) (string, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	value, exists := m.URLs[key]
+	if !exists {
+		return "", NewNotFoundError(key)
+	}
+	return value, nil
+}
+
+func (m *URLMap) Set(key, value string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	details := []Details{}
+	if key == "" {
+		details = append(details, Details{Field: "key", Issue: "cannot be empty"})
+	}
+	if value == "" {
+		details = append(details, Details{Field: "value", Issue: "cannot be empty"})
+	}
+	if len(details) > 0 {
+		return NewBadRequestError(details)
+	}
+	if _, exists := m.URLs[key]; exists {
+		details = append(details, Details{Field: "key", Issue: fmt.Sprintf("key '%s' already exists", key)})
+		return NewBadRequestError(details)
+	}
+	return nil
+}
 
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,8 +148,24 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func handleError(w http.ResponseWriter, err error) {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		// This is our custom error type, we can trust its fields.
+		log.Printf("Error: %v", appErr) // Log the detailed error
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(appErr.HTTPStatus)
+		json.NewEncoder(w).Encode(appErr)
+		return
+	}
+
+	// For any other error, return a generic 500.
+	log.Printf("An unexpected error occurred: %v", err)
+	http.Error(w, `{"message":"An internal server error occurred."}`, http.StatusInternalServerError)
+}
+
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
 	// Command-line flag for listening address
@@ -44,10 +176,6 @@ func main() {
 	// Set up for graceful shutdown on interrupt signal
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-
-	// Create a WaitGroup to wait for all reuests to finish before exiting.
-	// Need to be careful with context cancellation or ELSE DEADLOCKS
-	var wg sync.WaitGroup
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
