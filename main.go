@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/sqids/sqids-go"
 )
 
 var (
@@ -21,9 +21,56 @@ var (
 	requestIDKey contextKey = "requestID"
 	wg           sync.WaitGroup
 	DBURLs       = NewURLMap()
+	SqidsGen     = NewSqidsGen()
+	Counter      = NewGlobalCounter()
 )
 
+type GlobalCounter struct {
+	mu    sync.Mutex
+	count uint64
+}
+
+func (c *GlobalCounter) Increment() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count++
+}
+
+func (c *GlobalCounter) Count() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.count
+}
+
+func NewGlobalCounter() *GlobalCounter {
+	return &GlobalCounter{
+		count: 0,
+	}
+}
+
+type sqidsGen struct {
+	Sqid *sqids.Sqids
+}
+
+func NewSqidsGen() *sqidsGen {
+	squid, _ := sqids.New()
+	sqidsGen := &sqidsGen{
+		Sqid: squid,
+	}
+	return sqidsGen
+}
+
+func (s *sqidsGen) Generate() string {
+	id, _ := s.Sqid.Encode([]uint64{Counter.Count()})
+	return id
+}
+
 type contextKey string
+
+type Payload struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
 
 type URLMap struct {
 	lock sync.RWMutex
@@ -152,7 +199,7 @@ func handleError(w http.ResponseWriter, err error) {
 	var appErr *AppError
 	if errors.As(err, &appErr) {
 		// This is our custom error type, we can trust its fields.
-		log.Printf("Error: %v", appErr) // Log the detailed error
+		logger.Error("Handle Error", "Error", appErr) // Log the detailed error
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(appErr.HTTPStatus)
@@ -161,9 +208,135 @@ func handleError(w http.ResponseWriter, err error) {
 	}
 
 	// For any other error, return a generic 500.
-	log.Printf("An unexpected error occurred: %v", err)
+	logger.Error("Handle Error", "An unexpected error occurred", err)
 	http.Error(w, `{"message":"An internal server error occurred."}`, http.StatusInternalServerError)
 }
+
+// DecodePayload decodes the JSON payload from the request body
+func DecodePayload(r *http.Request) (*Payload, error) {
+	wg.Add(1)
+	defer wg.Done()
+
+	var payload Payload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, NewBadRequestError([]Details{
+			{Field: "body", Issue: "Invalid JSON format"},
+		})
+	}
+	return &payload, nil
+}
+
+func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
+	wg.Add(1)
+	defer wg.Done()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		logger.Error("Failed to encode JSON response", "error", err)
+		http.Error(w, `{"message":"Failed to encode response"}`, http.StatusInternalServerError)
+	}
+}
+
+// handle create new shortened URL
+func handleCreateShortenedURL(w http.ResponseWriter, r *http.Request) {
+	wg.Add(1)
+	defer wg.Done()
+
+	if r.Method != http.MethodPost {
+		handleError(w, NewAppError("Method Not Allowed", "Only POST method is allowed", http.StatusMethodNotAllowed, nil))
+		return
+	}
+
+	key, err := shortenURL(r)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	JSONResponse(w, http.StatusCreated, map[string]string{
+		"key": key,
+	})
+}
+
+// service to handle URL shortening
+func shortenURL(r *http.Request) (string, error) {
+	wg.Add(1)
+	defer wg.Done()
+
+	payload, err := DecodePayload(r)
+	if err != nil {
+		return "", NewAppError("Failed to decode payload", "Invalid request payload", http.StatusBadRequest, err)
+	}
+
+	generatedKey := SqidsGen.Generate()
+	if err := DBURLs.Set(generatedKey, payload.Value); err != nil {
+		if _, ok := err.(*BadRequestError); ok {
+			return "", NewAppError("Bad request", "Invalid input data", http.StatusBadRequest, err)
+		}
+		return "", NewAppError("Failed to set URL", "Internal server error", http.StatusInternalServerError, err)
+	}
+	Counter.Increment()
+	payload.Key = generatedKey
+
+	return payload.Key, nil
+
+}
+
+// handle get shortened URL
+func handleGetShortenedURL(w http.ResponseWriter, r *http.Request) {
+	wg.Add(1)
+	defer wg.Done()
+
+	if r.Method != http.MethodGet {
+		handleError(w, NewAppError("Method Not Allowed", "Only GET method is allowed", http.StatusMethodNotAllowed, nil))
+		return
+	}
+
+	key, err := getKey(r)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	longURL, err := serviceGetKeyFromMap(key)
+	if err != nil {
+		handleError(w, err)
+	}
+
+	http.Redirect(w, r, longURL, http.StatusMovedPermanently)
+}
+
+func serviceGetKeyFromMap(key string) (string, error) {
+	wg.Add(1)
+	defer wg.Done()
+
+	URL, err := DBURLs.Get(key)
+	if err != nil {
+		if notFoundErr, ok := err.(*NotFoundError); ok {
+			return "", NewAppError("Not Found", notFoundErr.Error(), http.StatusNotFound, err)
+		}
+		return "", NewAppError("Internal Server Error", "Failed to retrieve URL", http.StatusInternalServerError, err)
+	}
+	return URL, nil
+}
+
+func getKey(r *http.Request) (string, error) {
+	wg.Add(1)
+	defer wg.Done()
+
+	key := r.URL.Path[1:] // Remove leading slash
+	if key == "" {
+		return "", NewBadRequestError([]Details{{Field: "key", Issue: "is required"}})
+	}
+	return key, nil
+}
+
+// handle delete shortened URL
+
+// handle update shortened URL
+
+// handle redirect from shortened URL to original URL
 
 func main() {
 	slog.SetDefault(logger)
@@ -187,6 +360,9 @@ func main() {
 		w.Write([]byte("Hello, World!"))
 		logger.Info("Handled request", "requestID", r.Context().Value(requestIDKey), "method", r.Method, "url", r.URL.String())
 	})
+
+	mux.HandleFunc("/shorten", handleCreateShortenedURL)
+	mux.HandleFunc("/{key}", handleGetShortenedURL)
 
 	go http.ListenAndServe(*listenAddr, requestIDMiddleware(mux))
 	<-ctx.Done()
