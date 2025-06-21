@@ -43,6 +43,13 @@ func (c *GlobalCounter) Count() uint64 {
 	return c.count
 }
 
+func (c *GlobalCounter) GetAndIncrement() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count++
+	return c.count
+}
+
 func NewGlobalCounter() *GlobalCounter {
 	return &GlobalCounter{
 		count: 0,
@@ -62,7 +69,7 @@ func NewSqidsGen() *sqidsGen {
 }
 
 func (s *sqidsGen) Generate() string {
-	id, _ := s.Sqid.Encode([]uint64{Counter.Count()})
+	id, _ := s.Sqid.Encode([]uint64{Counter.GetAndIncrement()})
 	return id
 }
 
@@ -269,7 +276,6 @@ func serviceToShortenURL(r *http.Request) (string, error) {
 		}
 		return "", NewAppError("Failed to set URL", "Internal server error", http.StatusInternalServerError, err)
 	}
-	Counter.Increment()
 	payload.ShortURL = generatedShortURL
 	logger.Info("Shortened URL created", "shortURL", payload.ShortURL, "longURL", payload.LongURL)
 
@@ -366,7 +372,7 @@ func main() {
 
 	slog.Info("Shutdown signal received, starting graceful shutdown")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
