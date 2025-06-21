@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sqids/sqids-go"
@@ -20,10 +21,9 @@ import (
 var (
 	logger                  = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	requestIDKey contextKey = "requestID"
-	wg           sync.WaitGroup
-	DBURLs       = NewURLMap()
-	SqidsGen     = NewSqidsGen()
-	Counter      = NewGlobalCounter()
+	DBURLs                  = NewURLMap()
+	SqidsGen                = NewSqidsGen()
+	Counter                 = NewGlobalCounter()
 )
 
 type GlobalCounter struct {
@@ -219,9 +219,6 @@ func handleError(w http.ResponseWriter, err error) {
 
 // DecodePayload decodes the JSON payload from the request body
 func DecodePayload(r *http.Request) (*Payload, error) {
-	wg.Add(1)
-	defer wg.Done()
-
 	var payload Payload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		return nil, NewBadRequestError([]Details{
@@ -232,9 +229,6 @@ func DecodePayload(r *http.Request) (*Payload, error) {
 }
 
 func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
-	wg.Add(1)
-	defer wg.Done()
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -245,9 +239,6 @@ func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
 
 // handle create new shortened URL
 func handleCreateShortenedURL(w http.ResponseWriter, r *http.Request) {
-	wg.Add(1)
-	defer wg.Done()
-
 	if r.Method != http.MethodPost {
 		handleError(w, NewAppError("Method Not Allowed", "Only POST method is allowed", http.StatusMethodNotAllowed, nil))
 		return
@@ -266,9 +257,6 @@ func handleCreateShortenedURL(w http.ResponseWriter, r *http.Request) {
 
 // service to handle URL shortening
 func serviceToShortenURL(r *http.Request) (string, error) {
-	wg.Add(1)
-	defer wg.Done()
-
 	payload, err := DecodePayload(r)
 	if err != nil {
 		return "", NewAppError("Failed to decode payload", "Invalid request payload", http.StatusBadRequest, err)
@@ -290,9 +278,6 @@ func serviceToShortenURL(r *http.Request) (string, error) {
 
 // handle get shortened URL
 func handleGetShortenedURL(w http.ResponseWriter, r *http.Request) {
-	wg.Add(1)
-	defer wg.Done()
-
 	if r.Method != http.MethodGet {
 		handleError(w, NewAppError("Method Not Allowed", "Only GET method is allowed", http.StatusMethodNotAllowed, nil))
 		return
@@ -315,9 +300,6 @@ func handleGetShortenedURL(w http.ResponseWriter, r *http.Request) {
 }
 
 func serviceGetShortenURLFromMap(shortURL string) (string, error) {
-	wg.Add(1)
-	defer wg.Done()
-
 	URL, err := DBURLs.Get(shortURL)
 	if err != nil {
 		if _, ok := err.(*NotFoundError); ok {
@@ -329,9 +311,6 @@ func serviceGetShortenURLFromMap(shortURL string) (string, error) {
 }
 
 func getShortenURL(r *http.Request) (string, error) {
-	wg.Add(1)
-	defer wg.Done()
-
 	shortURL := strings.TrimPrefix(r.URL.Path, "/") // Remove leading slash
 	if shortURL == "" {
 		return "", NewBadRequestError([]Details{{Field: "shortURL", Issue: "is required"}})
@@ -353,15 +332,8 @@ func main() {
 	flag.Parse()
 	logger.Info("Starting server", "listenaddr", *listenAddr)
 
-	// Set up for graceful shutdown on interrupt signal
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		wg.Add(1)
-		defer wg.Done()
-
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Hello, World!"))
@@ -371,17 +343,37 @@ func main() {
 	mux.HandleFunc("/shorten", handleCreateShortenedURL)
 	mux.HandleFunc("/{shortURL}", handleGetShortenedURL)
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		wg.Add(1)
-		defer wg.Done()
-
 		http.ServeFile(w, r, "./static/favicon.ico")
 		logger.Info("Served favicon", "requestID", r.Context().Value(requestIDKey), "method", r.Method, "url", r.URL.String())
 	})
 
-	go http.ListenAndServe(*listenAddr, requestIDMiddleware(mux))
+	server := &http.Server{
+		Addr:    *listenAddr,
+		Handler: requestIDMiddleware(mux),
+	}
+
+	go func() {
+		slog.Info("Server is starting", "listenaddr", server.Addr)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("Server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	<-ctx.Done()
 
-	wg.Wait()
+	slog.Info("Shutdown signal received, starting graceful shutdown")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		slog.Error("Server shutdown failed", "error", err)
+	} else {
+		slog.Info("Server shutdown gracefully")
+	}
 
 	os.Exit(0)
 }
