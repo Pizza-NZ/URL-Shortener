@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -68,8 +69,8 @@ func (s *sqidsGen) Generate() string {
 type contextKey string
 
 type Payload struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	ShortURL string `json:"ShortURL"`
+	LongURL  string `json:"LongURL"`
 }
 
 type URLMap struct {
@@ -178,6 +179,10 @@ func (m *URLMap) Set(key, value string) error {
 		details = append(details, Details{Field: "key", Issue: fmt.Sprintf("key '%s' already exists", key)})
 		return NewBadRequestError(details)
 	}
+
+	m.URLs[key] = value
+	slog.Info("URL added to map", "key", key, "value", value)
+
 	return nil
 }
 
@@ -248,19 +253,19 @@ func handleCreateShortenedURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := shortenURL(r)
+	shortURL, err := serviceToShortenURL(r)
 	if err != nil {
 		handleError(w, err)
 		return
 	}
 
 	JSONResponse(w, http.StatusCreated, map[string]string{
-		"key": key,
+		"shortURL": fmt.Sprintf("%s%s", r.URL.Path, shortURL),
 	})
 }
 
 // service to handle URL shortening
-func shortenURL(r *http.Request) (string, error) {
+func serviceToShortenURL(r *http.Request) (string, error) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -269,18 +274,18 @@ func shortenURL(r *http.Request) (string, error) {
 		return "", NewAppError("Failed to decode payload", "Invalid request payload", http.StatusBadRequest, err)
 	}
 
-	generatedKey := SqidsGen.Generate()
-	if err := DBURLs.Set(generatedKey, payload.Value); err != nil {
+	generatedShortURL := SqidsGen.Generate()
+	if err := DBURLs.Set(generatedShortURL, payload.LongURL); err != nil {
 		if _, ok := err.(*BadRequestError); ok {
 			return "", NewAppError("Bad request", "Invalid input data", http.StatusBadRequest, err)
 		}
 		return "", NewAppError("Failed to set URL", "Internal server error", http.StatusInternalServerError, err)
 	}
 	Counter.Increment()
-	payload.Key = generatedKey
+	payload.ShortURL = generatedShortURL
+	logger.Info("Shortened URL created", "shortURL", payload.ShortURL, "longURL", payload.LongURL)
 
-	return payload.Key, nil
-
+	return payload.ShortURL, nil
 }
 
 // handle get shortened URL
@@ -293,43 +298,45 @@ func handleGetShortenedURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := getKey(r)
+	shortURL, err := getShortenURL(r)
 	if err != nil {
 		handleError(w, err)
 		return
 	}
 
-	longURL, err := serviceGetKeyFromMap(key)
+	longURL, err := serviceGetShortenURLFromMap(shortURL)
 	if err != nil {
 		handleError(w, err)
+		return
 	}
 
 	http.Redirect(w, r, longURL, http.StatusMovedPermanently)
+	logger.Info("Redirecting to long URL", "shortURL", shortURL, "longURL", longURL, "requestID", r.Context().Value(requestIDKey))
 }
 
-func serviceGetKeyFromMap(key string) (string, error) {
+func serviceGetShortenURLFromMap(shortURL string) (string, error) {
 	wg.Add(1)
 	defer wg.Done()
 
-	URL, err := DBURLs.Get(key)
+	URL, err := DBURLs.Get(shortURL)
 	if err != nil {
-		if notFoundErr, ok := err.(*NotFoundError); ok {
-			return "", NewAppError("Not Found", notFoundErr.Error(), http.StatusNotFound, err)
+		if _, ok := err.(*NotFoundError); ok {
+			return "", NewAppError("Not Found", "Service failed to get URL from map", http.StatusNotFound, err)
 		}
 		return "", NewAppError("Internal Server Error", "Failed to retrieve URL", http.StatusInternalServerError, err)
 	}
 	return URL, nil
 }
 
-func getKey(r *http.Request) (string, error) {
+func getShortenURL(r *http.Request) (string, error) {
 	wg.Add(1)
 	defer wg.Done()
 
-	key := r.URL.Path[1:] // Remove leading slash
-	if key == "" {
-		return "", NewBadRequestError([]Details{{Field: "key", Issue: "is required"}})
+	shortURL := strings.TrimPrefix(r.URL.Path, "/") // Remove leading slash
+	if shortURL == "" {
+		return "", NewBadRequestError([]Details{{Field: "shortURL", Issue: "is required"}})
 	}
-	return key, nil
+	return shortURL, nil
 }
 
 // handle delete shortened URL
@@ -362,7 +369,14 @@ func main() {
 	})
 
 	mux.HandleFunc("/shorten", handleCreateShortenedURL)
-	mux.HandleFunc("/{key}", handleGetShortenedURL)
+	mux.HandleFunc("/{shortURL}", handleGetShortenedURL)
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		wg.Add(1)
+		defer wg.Done()
+
+		http.ServeFile(w, r, "./static/favicon.ico")
+		logger.Info("Served favicon", "requestID", r.Context().Value(requestIDKey), "method", r.Method, "url", r.URL.String())
+	})
 
 	go http.ListenAndServe(*listenAddr, requestIDMiddleware(mux))
 	<-ctx.Done()
