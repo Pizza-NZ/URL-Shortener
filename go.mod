@@ -4,4 +4,7 @@ go 1.22.2
 
 require github.com/google/uuid v1.6.0
 
-require github.com/sqids/sqids-go v0.4.1 // indirect
+require (
+	github.com/kelseyhightower/envconfig v1.4.0 // indirect
+	github.com/sqids/sqids-go v0.4.1 // indirect
+)
