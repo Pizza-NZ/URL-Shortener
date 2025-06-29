@@ -3,35 +3,48 @@ package config
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
+	_ "github.com/joho/godotenv/autoload"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/pizza-nz/url-shortener/types"
 )
 
 type DBConfig struct {
-	DBConn string `env:"DB_CONN" default:"localhost:5432"` // Database connection string
-	DBName string `env:"DB_NAME" default:"url_shortener"`  // Database name
-	DBUser string `env:"DB_USER" default:"user"`           // Database user
-	DBPass string `env:"DB_PASS" default:"password"`       // Database password
+	DBHost string `default:"localhost:5432"`
+	DBPort string `default:"5432"`
+	DBName string `default:"url_shortener"` // Database name
+	DBUser string `default:"user"`          // Database user
+	DBPass string `default:"password"`      // Database password
 }
 
 func LoadDBConfig() (*DBConfig, error) {
 	cfg := &DBConfig{}
-	if err := envconfig.Process("", cfg); err != nil {
-		return nil, types.NewConfigError("Failed to load DB configuration", err)
-	}
+	// if err := envconfig.Process("", cfg); err != nil {
+	// 	return nil, types.NewConfigError("Failed to load DB configuration", err)
+	// }
+	cfg.DBHost = os.Getenv("DB_HOST")
+	cfg.DBPort = os.Getenv("DB_PORT")
+	cfg.DBName = os.Getenv("DB_NAME")
+	cfg.DBUser = os.Getenv("DB_USER")
+	cfg.DBPass = os.Getenv("DB_PASS")
+
 	return cfg, nil
 }
 
+func (cfg *DBConfig) ConnectionString() string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
+}
+
 type ServerConfig struct {
-	ListenAddr   string `default:":1232"`  // Address to listen on
-	ReadTimeout  int    `default:"10000"`  // Read timeout in milliseconds
-	WriteTimeout int    `default:"10000"`  // Write timeout in milliseconds
-	IdleTimeout  int    `default:"120000"` // Idle timeout in milliseconds
+	ListenAddr   string `env:"LISTENADDR" default:":1232"`   // Address to listen on
+	ReadTimeout  int    `env:"READTIMEOUT" default:"10000"`  // Read timeout in milliseconds
+	WriteTimeout int    `env:"WRITETIMEOUT" default:"10000"` // Write timeout in milliseconds
+	IdleTimeout  int    `env:"IDLETIMEOUT" default:"120000"` // Idle timeout in milliseconds
 
 	Server *http.Server `json:"-"` // HTTP server instance
 }

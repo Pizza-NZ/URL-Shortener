@@ -5,15 +5,10 @@ import (
 	"net/http"
 
 	"github.com/pizza-nz/url-shortener/handlers"
+	"github.com/pizza-nz/url-shortener/middleware"
+	"github.com/pizza-nz/url-shortener/service"
 	"github.com/pizza-nz/url-shortener/types"
 )
-
-// RegisterRoutes registers all routes for the server. Basic entry point when setting up server.
-func RegisterRoutes(mux *http.ServeMux) {
-	RegisterStaticRoutes(mux)
-
-	RegisterAPIRoutes(mux)
-}
 
 // RegisterStaticRoutes registers static routes for the web server.
 func RegisterStaticRoutes(mux *http.ServeMux) {
@@ -31,14 +26,30 @@ func RegisterStaticRoutes(mux *http.ServeMux) {
 	})
 }
 
-// RegisterAPIRoutes registers API routes for the URL shortening service.
-func RegisterAPIRoutes(mux *http.ServeMux) {
+// RegisterAPIRoutes registers API routes for the URL shortening service. DONT USE
+func RegisterAPIRoutes(mux *http.ServeMux, service service.URLService) handlers.ShortenedURLHandler {
 	// ShortenedURLHandler
-	shortenedURLHandler := handlers.NewShortenedURLHandler()
+	shortenedURLHandler := handlers.NewShortenedURLHandler(service)
 
 	// API route for creating a shortened URL
 	mux.HandleFunc("/"+types.APIVersion+"/shorten", shortenedURLHandler.CreateShortenedURL)
 
 	// API route for retrieving a long URL from a shortened URL
 	mux.HandleFunc("/"+types.APIVersion+"/shorten/{shortURL}", shortenedURLHandler.GetShortenedURL)
+
+	return shortenedURLHandler
+}
+
+// RegisterAPIRoutesWithMiddleware registers API routes for the URL shortening service with middlewares.
+func RegisterAPIRoutesWithMiddleware(mux *http.ServeMux, service service.URLService) handlers.ShortenedURLHandler {
+	// ShortenedURLHandler
+	shortenedURLHandler := handlers.NewShortenedURLHandler(service)
+
+	// API route for creating a shortened URL
+	mux.Handle("/"+types.APIVersion+"/shorten", middleware.DBReadyMiddleware(http.HandlerFunc(shortenedURLHandler.CreateShortenedURL)))
+
+	// API route for retrieving a long URL from a shortened URL
+	mux.Handle("/"+types.APIVersion+"/shorten/{shortURL}", middleware.DBReadyMiddleware(http.HandlerFunc(shortenedURLHandler.GetShortenedURL)))
+
+	return shortenedURLHandler
 }

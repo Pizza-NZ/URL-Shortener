@@ -17,13 +17,15 @@ type ShortenedURLHandler interface {
 
 	// GetShortenedURL handles the retrieval of a long URL from a shortened URL.
 	GetShortenedURL(w http.ResponseWriter, r *http.Request)
+
+	SetServiceURL(service service.URLService)
 }
 
 // NewShortenedURLHandler creates a new instance of ShortenedURLHandler.
 // It initializes the handler with the necessary services or dependencies.
-func NewShortenedURLHandler() ShortenedURLHandler {
+func NewShortenedURLHandler(service service.URLService) ShortenedURLHandler {
 	return &ShortenedURLHandlerImpl{
-		Service: service.NewURLService(), // Assuming you have a service constructor
+		Service: service, // Assuming you have a service constructor
 	}
 }
 
@@ -47,6 +49,12 @@ func (h *ShortenedURLHandlerImpl) CreateShortenedURL(w http.ResponseWriter, r *h
 	if payload.LongURL == "" {
 		badRequest := types.NewBadRequestError([]types.Details{types.NewDetails("LongURL", "Long URL cannot be empty")})
 		HandleError(w, types.NewAppError("Bad Request", badRequest.Error(), http.StatusBadRequest, badRequest))
+		return
+	}
+
+	// Check if service nil, if nil then send 503
+	if h.Service == nil {
+		HandleError(w, types.NewAppError("Service Unavaible", "DB is not set up", 503, nil))
 		return
 	}
 
@@ -87,6 +95,11 @@ func (h *ShortenedURLHandlerImpl) GetShortenedURL(w http.ResponseWriter, r *http
 
 	http.Redirect(w, r, longURL, http.StatusMovedPermanently)
 	slog.Info("Redirecting to long URL", "shortURL", shortURL, "longURL", longURL, "requestID", w.Header().Get("X-Request-ID"))
+}
+
+// SetServiceURL
+func (h *ShortenedURLHandlerImpl) SetServiceURL(service service.URLService) {
+	h.Service = service
 }
 
 // JSONResponse is a utility function to send a JSON response with the given status code and data.

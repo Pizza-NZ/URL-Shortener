@@ -21,16 +21,35 @@ type URLServiceImpl struct {
 	SqidsGen *types.SqidsGen   // Sqids generator for creating short URLs
 }
 
-func NewURLService() URLService {
-	// Initialize the URLServiceImpl with a URLMap and SqidsGen.
+// TODO: Change these services to be one and call the env to find if it is PostgreSQL or In-Memory
+
+func NewURLService(db database.Database) URLService {
 	return &URLServiceImpl{
-		DBURLs:   database.NewDatabaseURLMapImpl(),
+		DBURLs:   db,
 		SqidsGen: types.NewSqidsGen(),
 	}
 }
 
+// func NewURLMapService() (URLService, error) {
+// 	// Initialize the URLServiceImpl with a URLMap and SqidsGen.
+// 	return &URLServiceImpl{
+// 		DBURLs:   database.NewDatabaseURLMapImpl(),
+// 		SqidsGen: types.NewSqidsGen(),
+// 	}, nil
+// }
+
+// func NewURLPGService() (URLService, error) {
+// 	// Initialize the URLServiceImpl with a URLMap and SqidsGen.
+// 	db, err := database.NewDatabaseURLPGImpl()
+// 	if err != nil {
+// 		return nil, types.NewAppError("Service Layer Failed", "NewURLPGService failed to start repo", 500, err)
+// 	}
+
+// 	, nil
+// }
+
 func (s *URLServiceImpl) CreateShortenedURL(longURL string) (string, error) {
-	shortURL := s.SqidsGen.Generate()
+	shortURL := s.SqidsGen.Generate(s.CountersArr())
 	if err := s.DBURLs.Set(shortURL, longURL); err != nil {
 		if _, ok := err.(*types.BadRequestError); ok {
 			return "", types.NewAppError("Bad request", "Invalid input data", http.StatusBadRequest, err)
