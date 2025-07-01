@@ -13,28 +13,38 @@ import (
 )
 
 var (
+	// dbReady indicates whether the database is connected and ready to accept queries.
 	dbReady bool = false
 )
 
+// Database is an interface for URL storage.
+// It defines methods for getting and setting URL data.
 type Database interface {
 	Get(key string) (string, error)
 	Set(key, value string) error
 }
 
+// CounterDatabase is an interface for a counter.
+// It defines a method for getting and incrementing a counter value.
 type CounterDatabase interface {
 	GetAndIncreament() (uint64, error)
 }
 
+// DatabaseURLPGImpl is a PostgreSQL implementation of the Database interface.
+// It uses a pgxpool for connection pooling.
 type DatabaseURLPGImpl struct {
 	URLs *pgxpool.Pool
 }
 
-// DatabaseURLMapImpl is a thread-safe map for storing URLs with their corresponding short keys.
+// DatabaseURLMapImpl is a thread-safe in-memory implementation of the Database interface.
+// It uses a map for storing URLs with their corresponding short keys.
 type DatabaseURLMapImpl struct {
 	lock sync.RWMutex
 	URLs map[string]string
 }
 
+// StartNewDatabase initializes and returns a database instance based on the connection string.
+// It supports in-memory and PostgreSQL databases.
 func StartNewDatabase(conn string) (Database, error) {
 	switch {
 	case conn == "":
@@ -55,6 +65,8 @@ func StartNewDatabase(conn string) (Database, error) {
 	}
 }
 
+// pingDB checks the connection to the database.
+// It sets the dbReady flag to true if the connection is successful.
 func pingDB(conn string) error {
 	ctx := context.Background()
 
@@ -71,11 +83,12 @@ func pingDB(conn string) error {
 	return nil
 }
 
+// IsDBReady returns the status of the database connection.
 func IsDBReady() bool {
 	return dbReady
 }
 
-// NewDatabaseURLMapImpl creates a new instance of DatabaseURLMapImpl.
+// mapDB creates a new instance of DatabaseURLMapImpl.
 // It initializes the internal map to ensure it is ready for use.
 func mapDB() Database {
 	return &DatabaseURLMapImpl{
@@ -83,10 +96,8 @@ func mapDB() Database {
 	}
 }
 
-// Get retrieves the value associated with the given key from the URLMap.
-// If the key does not exist, it returns a NotFoundError.
-// It uses a read lock to ensure thread safety during the retrieval.
-// The returned value is the long URL associated with the short key.
+// Get retrieves the long URL associated with the given short key from the in-memory map.
+// It returns a NotFoundError if the key does not exist.
 func (m *DatabaseURLMapImpl) Get(key string) (string, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
@@ -97,12 +108,8 @@ func (m *DatabaseURLMapImpl) Get(key string) (string, error) {
 	return value, nil
 }
 
-// Set adds a new key-value pair to the URLMap.
-// It checks if the key and value are not empty and if the key does not already exist.
-// If any of these conditions are not met, it returns a BadRequestError with appropriate details.
-// It uses a write lock to ensure thread safety during the addition.
-// If successful, it logs the addition of the URL to the map.
-// If the key already exists, it returns a BadRequestError indicating that the key is already
+// Set adds a new key-value pair to the in-memory map.
+// It returns a BadRequestError if the key or value is empty, or if the key already exists.
 func (m *DatabaseURLMapImpl) Set(key, value string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -127,6 +134,8 @@ func (m *DatabaseURLMapImpl) Set(key, value string) error {
 	return nil
 }
 
+// Get retrieves the long URL associated with the given short key from the PostgreSQL database.
+// It returns a NotFoundError if the key does not exist.
 func (db *DatabaseURLPGImpl) Get(key string) (string, error) {
 	var longURL string
 	err := db.URLs.QueryRow(context.Background(), "select long_url from table_urls where short_url=$1", key).Scan(&longURL)
@@ -140,6 +149,8 @@ func (db *DatabaseURLPGImpl) Get(key string) (string, error) {
 	}
 }
 
+// Set adds a new key-value pair to the PostgreSQL database.
+// It uses a transaction to ensure atomicity.
 func (db *DatabaseURLPGImpl) Set(key, value string) error {
 	tx, err := db.URLs.Begin(context.Background())
 	if err != nil {
@@ -157,6 +168,8 @@ func (db *DatabaseURLPGImpl) Set(key, value string) error {
 	return tx.Commit(context.Background())
 }
 
+// GetAndIncreament retrieves the current counter value from the database and increments it.
+// It uses a transaction to ensure atomicity.
 func (db *DatabaseURLPGImpl) GetAndIncreament() (uint64, error) {
 	tx, err := db.URLs.Begin(context.Background())
 	if err != nil {
@@ -174,6 +187,8 @@ func (db *DatabaseURLPGImpl) GetAndIncreament() (uint64, error) {
 	return counter, tx.Commit(context.Background())
 }
 
+// postgresDB creates a new PostgreSQL database instance.
+// It runs migrations and sets up a connection pool.
 func postgresDB(conn string) (Database, error) {
 	if conn == "" {
 		return nil, types.NewDBError("PGConnnectionString not set, were you meant to use NewDatabaseURLMapImpl?", nil)

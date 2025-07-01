@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"log/slog"
-
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,25 +17,31 @@ import (
 	"github.com/pizza-nz/url-shortener/service"
 )
 
+// MainConfig holds the top-level configuration for the application,
+// aggregating server and database settings.
 type MainConfig struct {
 	serverCfg *config.ServerConfig
 	dbCfg     *config.DBConfig
 }
 
+// cfg is a package-level variable holding the application's configuration.
 var cfg MainConfig
 
+// mustInitConfig initializes the server and database configurations.
+// It panics if loading the configuration fails, ensuring the application
+// does not start with invalid settings.
 func mustInitConfig() {
-	// Initilize ServerConfig
+	// Initialize ServerConfig
 	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
 		slog.Error("Failed to load server configuration", "error", err)
 		os.Exit(1)
 	}
 
-	// Initilize DBConfig
+	// Initialize DBConfig
 	DBConfig, err := config.LoadDBConfig()
 	if err != nil {
-		slog.Error("Failed to load server configuration", "error", err)
+		slog.Error("Failed to load database configuration", "error", err)
 		os.Exit(1)
 	}
 
@@ -46,6 +51,9 @@ func mustInitConfig() {
 	}
 }
 
+// connectWithRetry attempts to connect to the database with a retry mechanism.
+// It tries to connect every 10 seconds for up to 1 minute. If the connection
+// is successful, it sets the URL service for the handler.
 func connectWithRetry(handler handlers.ShortenedURLHandler) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -53,7 +61,7 @@ func connectWithRetry(handler handlers.ShortenedURLHandler) {
 
 	timeout := time.After(1 * time.Minute)
 
-	slog.Info("Starting databse connection attempts")
+	slog.Info("Starting database connection attempts")
 
 	var lastErr error
 	for {
@@ -78,6 +86,9 @@ func connectWithRetry(handler handlers.ShortenedURLHandler) {
 	}
 }
 
+// main is the entry point of the application.
+// It initializes the logger, configuration, routes, and starts the server.
+// It also handles graceful shutdown on receiving an interrupt signal.
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 

@@ -14,6 +14,8 @@ import (
 	"github.com/pizza-nz/url-shortener/types"
 )
 
+// DBConfig holds the configuration for the database connection.
+// It includes host, port, name, user, and password.
 type DBConfig struct {
 	DBHost string `default:"localhost:5432"`
 	DBPort string `default:"5432"`
@@ -22,6 +24,8 @@ type DBConfig struct {
 	DBPass string `default:"password"`      // Database password
 }
 
+// LoadDBConfig loads the database configuration from environment variables.
+// It returns a DBConfig instance or an error if loading fails.
 func LoadDBConfig() (*DBConfig, error) {
 	cfg := &DBConfig{}
 	// if err := envconfig.Process("", cfg); err != nil {
@@ -36,10 +40,13 @@ func LoadDBConfig() (*DBConfig, error) {
 	return cfg, nil
 }
 
+// ConnectionString returns the formatted connection string for the database.
 func (cfg *DBConfig) ConnectionString() string {
 	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
 }
 
+// ServerConfig holds the configuration for the HTTP server.
+// It includes listen address, timeouts, and the server instance itself.
 type ServerConfig struct {
 	ListenAddr   string `env:"LISTENADDR" default:":1232"`   // Address to listen on
 	ReadTimeout  int    `env:"READTIMEOUT" default:"10000"`  // Read timeout in milliseconds
@@ -49,6 +56,8 @@ type ServerConfig struct {
 	Server *http.Server `json:"-"` // HTTP server instance
 }
 
+// LoadServerConfig loads the server configuration from environment variables.
+// It initializes the HTTP server with the loaded settings.
 func LoadServerConfig() (*ServerConfig, error) {
 	cfg := &ServerConfig{}
 	if err := envconfig.Process("", cfg); err != nil {
@@ -66,6 +75,8 @@ func LoadServerConfig() (*ServerConfig, error) {
 	return cfg, nil
 }
 
+// MustStart starts the HTTP server.
+// It panics if the server configuration is not initialized or if the server fails to start.
 func (cfg *ServerConfig) MustStart() {
 	if cfg.Server == nil {
 		panic(types.NewConfigError("Server configuration is not initialized", nil))
@@ -78,6 +89,8 @@ func (cfg *ServerConfig) MustStart() {
 	}
 }
 
+// Shutdown gracefully shuts down the HTTP server.
+// It returns an error if the server configuration is not initialized.
 func (cfg *ServerConfig) Shutdown(ctx context.Context) error {
 	if cfg.Server == nil {
 		return types.NewConfigError("Server configuration is not initialized", nil)

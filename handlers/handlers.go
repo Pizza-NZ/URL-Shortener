@@ -18,6 +18,7 @@ type ShortenedURLHandler interface {
 	// GetShortenedURL handles the retrieval of a long URL from a shortened URL.
 	GetShortenedURL(w http.ResponseWriter, r *http.Request)
 
+	// SetServiceURL sets the URL service for the handler.
 	SetServiceURL(service service.URLService)
 }
 
@@ -31,10 +32,11 @@ func NewShortenedURLHandler(service service.URLService) ShortenedURLHandler {
 
 // ShortenedURLHandlerImpl is a concrete implementation of the ShortenedURLHandler interface.
 type ShortenedURLHandlerImpl struct {
-	Service service.URLService // Assuming you have a service interface for URL operations
+	Service service.URLService // URL service for URL operations
 }
 
 // CreateShortenedURL handles the creation of a new shortened URL.
+// It expects a POST request with a JSON payload containing the long URL.
 func (h *ShortenedURLHandlerImpl) CreateShortenedURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		HandleError(w, types.NewAppError("Method Not Allowed", "Only POST method is allowed", http.StatusMethodNotAllowed, nil))
@@ -52,9 +54,9 @@ func (h *ShortenedURLHandlerImpl) CreateShortenedURL(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Check if service nil, if nil then send 503
+	// Check if service is nil, if so return 503
 	if h.Service == nil {
-		HandleError(w, types.NewAppError("Service Unavaible", "DB is not set up", 503, nil))
+		HandleError(w, types.NewAppError("Service Unavailable", "DB is not set up", http.StatusServiceUnavailable, nil))
 		return
 	}
 
@@ -83,7 +85,7 @@ func (h *ShortenedURLHandlerImpl) GetShortenedURL(w http.ResponseWriter, r *http
 
 	// Protection from panic if Service is nil
 	if h.Service == nil {
-		HandleError(w, types.NewAppError("Internal Server Error", "service var is nil", 500, nil))
+		HandleError(w, types.NewAppError("Internal Server Error", "service var is nil", http.StatusInternalServerError, nil))
 		return
 	}
 
@@ -97,7 +99,7 @@ func (h *ShortenedURLHandlerImpl) GetShortenedURL(w http.ResponseWriter, r *http
 	slog.Info("Redirecting to long URL", "shortURL", shortURL, "longURL", longURL, "requestID", w.Header().Get("X-Request-ID"))
 }
 
-// SetServiceURL
+// SetServiceURL sets the URL service for the handler.
 func (h *ShortenedURLHandlerImpl) SetServiceURL(service service.URLService) {
 	h.Service = service
 }
@@ -113,6 +115,7 @@ func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
 }
 
 // HandleError is a utility function to handle errors in HTTP handlers.
+// It logs the error and sends an appropriate JSON response to the client.
 func HandleError(w http.ResponseWriter, err error) {
 	var appErr *types.AppError
 	if errors.As(err, &appErr) {

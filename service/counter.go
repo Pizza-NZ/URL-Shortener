@@ -10,13 +10,19 @@ import (
 )
 
 var (
-	counterLocal                          = types.NewGlobalCounter()
-	counterDB    database.CounterDatabase = nil
-	isInit                                = false
+	// counterLocal is a local in-memory counter.
+	counterLocal = types.NewGlobalCounter()
+	// counterDB is the database-backed counter.
+	counterDB database.CounterDatabase = nil
+	// isInit indicates whether the counter database has been initialized.
+	isInit = false
 
+	// bigIntMax is the maximum value for the random number generator.
 	bigIntMax = big.NewInt(2000301)
 )
 
+// CountersArr returns an array of two uint64 values for generating a unique ID.
+// The first value is from a local counter, and the second is from the database counter or a random number.
 func (s *URLServiceImpl) CountersArr() []uint64 {
 	if counterDB == nil && !isInit {
 		err := s.initCounterDB()
@@ -35,6 +41,8 @@ func (s *URLServiceImpl) CountersArr() []uint64 {
 	return []uint64{counterLocal.GetAndIncrement(), counterFromDB}
 }
 
+// initCounterDB initializes the database-backed counter.
+// It checks the type of the main database and sets the counterDB accordingly.
 func (s *URLServiceImpl) initCounterDB() error {
 	isInit = true
 	switch v := s.DBURLs.(type) {
@@ -48,6 +56,8 @@ func (s *URLServiceImpl) initCounterDB() error {
 	}
 }
 
+// generateRandomUInt64 generates a random uint64 value.
+// It is used as a fallback when the database counter is not available.
 func generateRandomUInt64() uint64 {
 	n, err := rand.Int(rand.Reader, bigIntMax)
 	if err != nil {

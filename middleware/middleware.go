@@ -11,6 +11,7 @@ import (
 )
 
 // RequestIDMiddleware is a middleware that generates a unique request ID for each incoming HTTP request.
+// It adds the request ID to the response header and logs the request details.
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := uuid.New().String()
@@ -22,7 +23,8 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// DBReadyMiddleware checks if the DB is connected. If not, it returns 503.
+// DBReadyMiddleware checks if the database is connected.
+// If not, it returns a 503 Service Unavailable error.
 func DBReadyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !database.IsDBReady() {

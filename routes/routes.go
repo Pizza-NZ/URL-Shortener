@@ -11,6 +11,7 @@ import (
 )
 
 // RegisterStaticRoutes registers static routes for the web server.
+// This includes the favicon and a root handler.
 func RegisterStaticRoutes(mux *http.ServeMux) {
 	// Favicon route
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +27,9 @@ func RegisterStaticRoutes(mux *http.ServeMux) {
 	})
 }
 
-// RegisterAPIRoutes registers API routes for the URL shortening service. DONT USE
+// RegisterAPIRoutes registers API routes for the URL shortening service.
+// This function is deprecated and should not be used.
+// Use RegisterAPIRoutesWithMiddleware instead.
 func RegisterAPIRoutes(mux *http.ServeMux, service service.URLService) handlers.ShortenedURLHandler {
 	// ShortenedURLHandler
 	shortenedURLHandler := handlers.NewShortenedURLHandler(service)
@@ -41,6 +44,7 @@ func RegisterAPIRoutes(mux *http.ServeMux, service service.URLService) handlers.
 }
 
 // RegisterAPIRoutesWithMiddleware registers API routes for the URL shortening service with middlewares.
+// It sets up routes for creating and retrieving shortened URLs, with a database readiness check.
 func RegisterAPIRoutesWithMiddleware(mux *http.ServeMux, service service.URLService) handlers.ShortenedURLHandler {
 	// ShortenedURLHandler
 	shortenedURLHandler := handlers.NewShortenedURLHandler(service)

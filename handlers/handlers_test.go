@@ -1,3 +1,4 @@
+
 package handlers
 
 import (
@@ -6,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	
 	"github.com/pizza-nz/url-shortener/types"
 )
 
@@ -16,18 +16,22 @@ type MockURLService struct {
 	GetLongURLFunc         func(shortURL string) (string, error)
 }
 
+// CreateShortenedURL mocks the CreateShortenedURL method of the URLService interface.
 func (m *MockURLService) CreateShortenedURL(longURL string) (string, error) {
 	return m.CreateShortenedURLFunc(longURL)
 }
 
+// GetLongURL mocks the GetLongURL method of the URLService interface.
 func (m *MockURLService) GetLongURL(shortURL string) (string, error) {
 	return m.GetLongURLFunc(shortURL)
 }
 
+// CountersArr mocks the CountersArr method of the URLService interface.
 func (m *MockURLService) CountersArr() []uint64 {
 	return []uint64{1, 2}
 }
 
+// TestCreateShortenedURL tests the CreateShortenedURL handler function.
 func TestCreateShortenedURL(t *testing.T) {
 	mockService := &MockURLService{
 		CreateShortenedURLFunc: func(longURL string) (string, error) {
@@ -74,6 +78,7 @@ func TestCreateShortenedURL(t *testing.T) {
 	}
 }
 
+// TestGetShortenedURL tests the GetShortenedURL handler function.
 func TestGetShortenedURL(t *testing.T) {
 	mockService := &MockURLService{
 		GetLongURLFunc: func(shortURL string) (string, error) {

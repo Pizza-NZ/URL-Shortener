@@ -3,7 +3,6 @@ package service
 import (
 	"testing"
 
-	
 	"github.com/pizza-nz/url-shortener/types"
 )
 
@@ -13,18 +12,22 @@ type MockDatabase struct {
 	SetFunc func(key, value string) error
 }
 
+// Get mocks the Get method of the Database interface.
 func (m *MockDatabase) Get(key string) (string, error) {
 	return m.GetFunc(key)
 }
 
+// Set mocks the Set method of the Database interface.
 func (m *MockDatabase) Set(key, value string) error {
 	return m.SetFunc(key, value)
 }
 
+// GetAndIncreament mocks the GetAndIncreament method of the CounterDatabase interface.
 func (m *MockDatabase) GetAndIncreament() (uint64, error) {
 	return 1, nil
 }
 
+// TestCreateShortenedURL tests the CreateShortenedURL method of the URLService.
 func TestCreateShortenedURL(t *testing.T) {
 	mockDB := &MockDatabase{
 		SetFunc: func(key, value string) error {
@@ -46,6 +49,7 @@ func TestCreateShortenedURL(t *testing.T) {
 	}
 }
 
+// TestGetLongURL tests the GetLongURL method of the URLService.
 func TestGetLongURL(t *testing.T) {
 	mockDB := &MockDatabase{
 		GetFunc: func(key string) (string, error) {
@@ -75,6 +79,7 @@ func TestGetLongURL(t *testing.T) {
 	}
 }
 
+// TestMain sets up the test environment.
 func TestMain(m *testing.M) {
 	isInit = true
 	m.Run()

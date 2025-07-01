@@ -8,6 +8,8 @@ import (
 	"github.com/pizza-nz/url-shortener/types"
 )
 
+// Migration runs the database migrations.
+// It connects to the database, creates a migrator, and applies the defined migrations.
 func Migration(conn string) error {
 	ctx := context.Background()
 

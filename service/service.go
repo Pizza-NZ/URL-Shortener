@@ -8,6 +8,8 @@ import (
 	"github.com/pizza-nz/url-shortener/types"
 )
 
+// URLService is an interface for the URL shortening service.
+// It defines methods for creating and retrieving shortened URLs.
 type URLService interface {
 	// CreateShortenedURL creates a new shortened URL from a long URL.
 	CreateShortenedURL(longURL string) (string, error)
@@ -16,13 +18,15 @@ type URLService interface {
 	GetLongURL(shortURL string) (string, error)
 }
 
+// URLServiceImpl is a concrete implementation of the URLService interface.
+// It uses a database for URL storage and a Sqids generator for creating short URLs.
 type URLServiceImpl struct {
-	DBURLs   database.Database // URLMap to store URLs
+	DBURLs   database.Database // Database for storing URLs
 	SqidsGen *types.SqidsGen   // Sqids generator for creating short URLs
 }
 
-// TODO: Change these services to be one and call the env to find if it is PostgreSQL or In-Memory
-
+// NewURLService creates a new instance of URLService.
+// It initializes the URLServiceImpl with a database and a SqidsGen.
 func NewURLService(db database.Database) URLService {
 	return &URLServiceImpl{
 		DBURLs:   db,
@@ -30,24 +34,8 @@ func NewURLService(db database.Database) URLService {
 	}
 }
 
-// func NewURLMapService() (URLService, error) {
-// 	// Initialize the URLServiceImpl with a URLMap and SqidsGen.
-// 	return &URLServiceImpl{
-// 		DBURLs:   database.NewDatabaseURLMapImpl(),
-// 		SqidsGen: types.NewSqidsGen(),
-// 	}, nil
-// }
-
-// func NewURLPGService() (URLService, error) {
-// 	// Initialize the URLServiceImpl with a URLMap and SqidsGen.
-// 	db, err := database.NewDatabaseURLPGImpl()
-// 	if err != nil {
-// 		return nil, types.NewAppError("Service Layer Failed", "NewURLPGService failed to start repo", 500, err)
-// 	}
-
-// 	, nil
-// }
-
+// CreateShortenedURL creates a new shortened URL from a long URL.
+// It generates a short URL, stores it in the database, and returns the short URL.
 func (s *URLServiceImpl) CreateShortenedURL(longURL string) (string, error) {
 	shortURL := s.SqidsGen.Generate(s.CountersArr())
 	if err := s.DBURLs.Set(shortURL, longURL); err != nil {
@@ -61,6 +49,8 @@ func (s *URLServiceImpl) CreateShortenedURL(longURL string) (string, error) {
 	return shortURL, nil
 }
 
+// GetLongURL retrieves the long URL associated with a given shortened URL.
+// It fetches the URL from the database and returns it.
 func (s *URLServiceImpl) GetLongURL(shortURL string) (string, error) {
 	URL, err := s.DBURLs.Get(shortURL)
 	if err != nil {
