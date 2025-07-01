@@ -1,13 +1,14 @@
 package handlers
 
 import (
-	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
+	"github.com/pizza-nz/url-shortener/middleware"
 	"github.com/pizza-nz/url-shortener/service"
 	"github.com/pizza-nz/url-shortener/types"
+	"github.com/pizza-nz/url-shortener/utils"
 )
 
 // ShortenedURLHandler is an interface that defines methods for handling shortened URLs.
@@ -39,35 +40,35 @@ type ShortenedURLHandlerImpl struct {
 // It expects a POST request with a JSON payload containing the long URL.
 func (h *ShortenedURLHandlerImpl) CreateShortenedURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		HandleError(w, types.NewAppError("Method Not Allowed", "Only POST method is allowed", http.StatusMethodNotAllowed, nil))
+		utils.HandleError(w, types.NewAppError("Method Not Allowed", "Only POST method is allowed", http.StatusMethodNotAllowed, nil))
 		return
 	}
 
 	payload, err := types.DecodePayload(r)
 	if err != nil {
-		HandleError(w, types.NewAppError("Failed to decode payload", "Invalid request payload", http.StatusBadRequest, err))
+		utils.HandleError(w, types.NewAppError("Failed to decode payload", "Invalid request payload", http.StatusBadRequest, err))
 		return
 	}
 	if payload.LongURL == "" {
 		badRequest := types.NewBadRequestError([]types.Details{types.NewDetails("LongURL", "Long URL cannot be empty")})
-		HandleError(w, types.NewAppError("Bad Request", badRequest.Error(), http.StatusBadRequest, badRequest))
+		utils.HandleError(w, types.NewAppError("Bad Request", badRequest.Error(), http.StatusBadRequest, badRequest))
 		return
 	}
 
 	// Check if service is nil, if so return 503
 	if h.Service == nil {
-		HandleError(w, types.NewAppError("Service Unavailable", "DB is not set up", http.StatusServiceUnavailable, nil))
+		utils.HandleError(w, types.NewAppError("Service Unavailable", "DB is not set up", http.StatusServiceUnavailable, nil))
 		return
 	}
 
 	shortURL, err := h.Service.CreateShortenedURL(payload.LongURL)
 	if err != nil {
-		HandleError(w, err)
+		utils.HandleError(w, err)
 		return
 	}
 
-	JSONResponse(w, http.StatusCreated, map[string]string{
-		"shortURL": "/" + shortURL,
+	utils.JSONResponse(w, http.StatusCreated, map[string]string{
+		"shortURL": shortURL,
 	})
 
 }
@@ -77,21 +78,21 @@ func (h *ShortenedURLHandlerImpl) CreateShortenedURL(w http.ResponseWriter, r *h
 // If the short URL does not exist, it returns a 404 Not Found error.
 func (h *ShortenedURLHandlerImpl) GetShortenedURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		HandleError(w, types.NewAppError("Method Not Allowed", "Only GET method is allowed", http.StatusMethodNotAllowed, nil))
+		utils.HandleError(w, types.NewAppError("Method Not Allowed", "Only GET method is allowed", http.StatusMethodNotAllowed, nil))
 		return
 	}
 
-	shortURL := r.PathValue("shortURL")
+	shortURL := strings.TrimPrefix(r.URL.Path, "/"+types.APIVersion+"/shorten/")
 
 	// Protection from panic if Service is nil
 	if h.Service == nil {
-		HandleError(w, types.NewAppError("Internal Server Error", "service var is nil", http.StatusInternalServerError, nil))
+		utils.HandleError(w, types.NewAppError("Internal Server Error", "service var is nil", http.StatusInternalServerError, nil))
 		return
 	}
 
 	longURL, err := h.Service.GetLongURL(shortURL)
 	if err != nil {
-		HandleError(w, err)
+		utils.HandleError(w, err)
 		return
 	}
 
@@ -104,31 +105,17 @@ func (h *ShortenedURLHandlerImpl) SetServiceURL(service service.URLService) {
 	h.Service = service
 }
 
-// JSONResponse is a utility function to send a JSON response with the given status code and data.
-func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		slog.Error("Failed to encode JSON response", "error", err, "requestID", w.Header().Get("X-Request-ID"))
-		http.Error(w, `{"message":"Failed to encode response"}`, http.StatusInternalServerError)
-	}
-}
+// RegisterAPIRoutesWithMiddleware registers API routes for the URL shortening service with middlewares.
+// It sets up routes for creating and retrieving shortened URLs, with a database readiness check.
+func RegisterAPIRoutesWithMiddleware(mux *http.ServeMux, service service.URLService) ShortenedURLHandler {
+	// ShortenedURLHandler
+	shortenedURLHandler := NewShortenedURLHandler(service)
 
-// HandleError is a utility function to handle errors in HTTP handlers.
-// It logs the error and sends an appropriate JSON response to the client.
-func HandleError(w http.ResponseWriter, err error) {
-	var appErr *types.AppError
-	if errors.As(err, &appErr) {
-		// This is our custom error type, we can trust its fields.
-		slog.Error("Handle Error", "Error", appErr) // Log the detailed error
+	// API route for creating a shortened URL
+	mux.Handle("/"+types.APIVersion+"/shorten", middleware.DBReadyMiddleware(http.HandlerFunc(shortenedURLHandler.CreateShortenedURL)))
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(appErr.HTTPStatus)
-		json.NewEncoder(w).Encode(appErr)
-		return
-	}
+	// API route for retrieving a long URL from a shortened URL
+	mux.Handle("/"+types.APIVersion+"/shorten/", middleware.DBReadyMiddleware(http.HandlerFunc(shortenedURLHandler.GetShortenedURL)))
 
-	// For any other error, return a generic 500.
-	slog.Error("Handle Error", "An unexpected error occurred", err)
-	http.Error(w, `{"message":"An internal server error occurred."}`, http.StatusInternalServerError)
+	return shortenedURLHandler
 }

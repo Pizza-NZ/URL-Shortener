@@ -2,6 +2,8 @@ package types
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -19,8 +21,8 @@ type ContextKey string
 // Payload represents the structure of the JSON payload expected in requests.
 // It contains the short URL and the long URL.
 type Payload struct {
-	ShortURL string `json:"ShortURL"`
-	LongURL  string `json:"LongURL"`
+	ShortURL string `json:"shortURL"`
+	LongURL  string `json:"longURL"`
 }
 
 // SqidsGen is a generator for unique IDs using the sqids package.
@@ -47,7 +49,19 @@ func (s *SqidsGen) Generate(arr []uint64) string {
 // DecodePayload decodes the JSON payload from the request body.
 func DecodePayload(r *http.Request) (*Payload, error) {
 	var payload Payload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("Failed to read request body", "error", err)
+		return nil, NewBadRequestError([]Details{
+			{Field: "body", Issue: "Failed to read body"},
+		})
+	}
+
+	slog.Info("Raw request body", "body", string(bodyBytes))
+
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		slog.Error("Failed to decode JSON payload", "error", err)
 		return nil, NewBadRequestError([]Details{
 			{Field: "body", Issue: "Invalid JSON format"},
 		})

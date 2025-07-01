@@ -1,4 +1,3 @@
-
 package handlers
 
 import (
@@ -43,7 +42,7 @@ func TestCreateShortenedURL(t *testing.T) {
 
 	// Test case 1: Valid request
 	payload := strings.NewReader(`{"longURL": "http://example.com"}`)
-	req, err := http.NewRequest("POST", "/shorten", payload)
+	req, err := http.NewRequest("POST", "/"+types.APIVersion+"/shorten", payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func TestCreateShortenedURL(t *testing.T) {
 			status, http.StatusCreated)
 	}
 
-	expected := `{"shortURL":"/shortURL"}`
+	expected := `{"shortURL":"shortURL"}`
 	if !strings.Contains(rr.Body.String(), expected) {
 		t.Errorf("handler returned unexpected body: got %v want %v",
 			rr.Body.String(), expected)
@@ -64,7 +63,7 @@ func TestCreateShortenedURL(t *testing.T) {
 
 	// Test case 2: Invalid request - empty longURL
 	payload = strings.NewReader(`{"longURL": ""}`)
-	req, err = http.NewRequest("POST", "/shorten", payload)
+	req, err = http.NewRequest("POST", "/"+types.APIVersion+"/shorten", payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +91,7 @@ func TestGetShortenedURL(t *testing.T) {
 	handler := NewShortenedURLHandler(mockService)
 
 	// Test case 1: Existing short URL
-	req, err := http.NewRequest("GET", "/exists", nil)
+	req, err := http.NewRequest("GET", "/"+types.APIVersion+"/shorten"+"/exists", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +106,7 @@ func TestGetShortenedURL(t *testing.T) {
 	}
 
 	// Test case 2: Non-existing short URL
-	req, err = http.NewRequest("GET", "/nonexistent", nil)
+	req, err = http.NewRequest("GET", "/"+types.APIVersion+"/shorten"+"/nonexistent", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

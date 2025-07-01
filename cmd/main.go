@@ -12,6 +12,7 @@ import (
 	"github.com/pizza-nz/url-shortener/config"
 	"github.com/pizza-nz/url-shortener/database"
 	"github.com/pizza-nz/url-shortener/handlers"
+	"github.com/pizza-nz/url-shortener/logging"
 	"github.com/pizza-nz/url-shortener/middleware"
 	"github.com/pizza-nz/url-shortener/routes"
 	"github.com/pizza-nz/url-shortener/service"
@@ -31,6 +32,7 @@ var cfg MainConfig
 // It panics if loading the configuration fails, ensuring the application
 // does not start with invalid settings.
 func mustInitConfig() {
+	slog.Info("Initializing configuration")
 	// Initialize ServerConfig
 	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
@@ -49,6 +51,7 @@ func mustInitConfig() {
 		serverCfg: serverConfig,
 		dbCfg:     DBConfig,
 	}
+	slog.Info("Configuration initialized successfully")
 }
 
 // connectWithRetry attempts to connect to the database with a retry mechanism.
@@ -70,7 +73,8 @@ func connectWithRetry(handler handlers.ShortenedURLHandler) {
 			slog.Error("connectWithRetry Failed to connect to the database after 1 minute.", "last error", lastErr)
 			return
 		case <-ticker.C:
-			conn, err := database.StartNewDatabase(cfg.dbCfg.ConnectionString())
+			slog.Info("Attempting to connect to the database", "Attempt", tickerAttempt)
+			conn, err := database.StartNewDatabase(cfg.dbCfg.ConnectionString(), cfg.dbCfg.RedactedConnectionString())
 			if err != nil {
 				slog.Warn("connectWithRetry Failed to connect to the database, retrying...", "Attempt", tickerAttempt, "Error", err)
 				lastErr = err
@@ -90,7 +94,11 @@ func connectWithRetry(handler handlers.ShortenedURLHandler) {
 // It initializes the logger, configuration, routes, and starts the server.
 // It also handles graceful shutdown on receiving an interrupt signal.
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "prod"
+	}
+	slog.SetDefault(logging.NewLogger(env))
 
 	// Command-line flag for listening address
 	listenAddr := flag.String("listenaddr", ":1232", "Address to listen on")
@@ -101,7 +109,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	routes.RegisterStaticRoutes(mux)
-	handler := routes.RegisterAPIRoutesWithMiddleware(mux, nil)
+	handler := handlers.RegisterAPIRoutesWithMiddleware(mux, nil)
 
 	go connectWithRetry(handler)
 

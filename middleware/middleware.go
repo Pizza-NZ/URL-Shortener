@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pizza-nz/url-shortener/database"
-	"github.com/pizza-nz/url-shortener/handlers"
 	"github.com/pizza-nz/url-shortener/types"
+	"github.com/pizza-nz/url-shortener/utils"
 )
 
 // RequestIDMiddleware is a middleware that generates a unique request ID for each incoming HTTP request.
@@ -28,7 +28,7 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 func DBReadyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !database.IsDBReady() {
-			handlers.HandleError(w, types.NewAppError("Service Not Available", "Database is not ready", http.StatusServiceUnavailable, nil))
+			utils.HandleError(w, types.NewAppError("Service Not Available", "Database is not ready", http.StatusServiceUnavailable, nil))
 			return
 		}
 		next.ServeHTTP(w, r)
