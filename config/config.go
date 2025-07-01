@@ -45,6 +45,11 @@ func (cfg *DBConfig) ConnectionString() string {
 	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
 }
 
+// RedactedConnectionString returns the formatted connection string for the database with the password redacted.
+func (cfg *DBConfig) RedactedConnectionString() string {
+	return fmt.Sprintf("postgres://%s:xxxxx@%s:%s/%s?sslmode=disable", cfg.DBUser, cfg.DBHost, cfg.DBPort, cfg.DBName)
+}
+
 // ServerConfig holds the configuration for the HTTP server.
 // It includes listen address, timeouts, and the server instance itself.
 type ServerConfig struct {

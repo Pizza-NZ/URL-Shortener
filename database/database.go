@@ -45,11 +45,14 @@ type DatabaseURLMapImpl struct {
 
 // StartNewDatabase initializes and returns a database instance based on the connection string.
 // It supports in-memory and PostgreSQL databases.
-func StartNewDatabase(conn string) (Database, error) {
+func StartNewDatabase(conn string, redactedConn string) (Database, error) {
+	slog.Info("Starting new database connection", "connection_string", redactedConn)
 	switch {
 	case conn == "":
+		slog.Info("Using in-memory map database")
 		return mapDB(), nil
 	case conn[:4] == "post":
+		slog.Info("Using PostgreSQL database")
 		err := pingDB(conn)
 		if err != nil {
 			return nil, err
@@ -61,24 +64,28 @@ func StartNewDatabase(conn string) (Database, error) {
 		}
 		return db, nil
 	default:
-		return nil, nil
+		return nil, types.NewDBError("Unsupported database type", nil)
 	}
 }
 
 // pingDB checks the connection to the database.
 // It sets the dbReady flag to true if the connection is successful.
 func pingDB(conn string) error {
+	slog.Info("Pinging database")
 	ctx := context.Background()
 
 	pgx, err := pgx.Connect(ctx, conn)
 	if err != nil {
 		return types.NewDBError("pingDB failed to pgx connect to DB", err)
 	}
+	defer pgx.Close(ctx)
+
 	if err := pgx.Ping(ctx); err != nil {
 		return types.NewDBError("pingDB failed to ping to DB", err)
 	}
 
 	dbReady = true
+	slog.Info("Database ping successful")
 
 	return nil
 }
@@ -190,27 +197,36 @@ func (db *DatabaseURLPGImpl) GetAndIncreament() (uint64, error) {
 // postgresDB creates a new PostgreSQL database instance.
 // It runs migrations and sets up a connection pool.
 func postgresDB(conn string) (Database, error) {
+	slog.Info("Creating new PostgreSQL database instance")
 	if conn == "" {
 		return nil, types.NewDBError("PGConnnectionString not set, were you meant to use NewDatabaseURLMapImpl?", nil)
 	}
 
+	slog.Info("Running database migration")
 	if err := Migration(conn); err != nil {
 		return nil, types.NewDBError("poolconfig failed to migrate", err)
 	}
+	slog.Info("Database migration successful")
 
+	slog.Info("Parsing PostgreSQL connection string")
 	poolConfig, err := pgxpool.ParseConfig(conn)
 	if err != nil {
 		return nil, types.NewDBError("poolconfig failed to parse", err)
 	}
+	slog.Info("PostgreSQL connection string parsed successfully")
 
+	slog.Info("Creating new PostgreSQL connection pool")
 	db, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return nil, types.NewDBError("poolconfig failed to create new pool", err)
 	}
+	slog.Info("PostgreSQL connection pool created successfully")
 
+	slog.Info("Pinging PostgreSQL connection pool")
 	if err = db.Ping(context.Background()); err != nil {
 		return nil, types.NewDBError("DB pool failed to ping PG", err)
 	}
+	slog.Info("PostgreSQL connection pool pinged successfully")
 
 	return &DatabaseURLPGImpl{
 		URLs: db,

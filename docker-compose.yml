@@ -35,5 +35,24 @@ services:
       retries: 5
       start_period: 10s
     restart: always
+
+  integration-tests:
+    build:
+      context: .
+      target: builder
+    container_name: go_url_shortener_integration_tests
+    working_dir: /app
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME}
+      - ENV=test
+    command: ["go", "test", "./handlers", "-tags=integration"]
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres-data:
